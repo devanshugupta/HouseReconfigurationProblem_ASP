@@ -32,87 +32,95 @@ legacyConfig(cabinetTOthing(9,7)).
 legacyConfig(cabinet(10)).
 legacyConfig(cabinetTOthing(10,8)).
 
-% Long-term storage things
 thingLong(3).
 thingLong(8).
 thingLong(21).
 
-% New domains for cabinets and rooms
 cabinetDomainNew(22..23).
 roomDomainNew(17..20).
 
-% Reuse costs
+% reuse costs
 reuseCabinetTOthingCost(0).
 reuseRoomTOcabinetCost(0).
 reusePersonTOroomCost(0).
 reuseCabinetAsHighCost(3).
 reuseCabinetAsSmallCost(0).
 reuseRoomCost(0).
-
-% Remove costs
+% remove costs
 removeCabinetTOthingCost(2).
 removeRoomTOcabinetCost(2).
 removePersonTOroomCost(2).
 removeCabinetCost(2).
 removeRoomCost(2).
-
-% Create costs
+% create costs
 cabinetHighCost(100).
 cabinetSmallCost(10).
 roomCost(5).
 
-% Define persons and things based on legacyConfig
-person(P) :- legacyConfig(person(P)).
-thing(T) :- legacyConfig(thing(T)).
-owner(T, P) :- legacyConfig(personTOthing(P, T)).
+% example solution:
+%cabinet(9). cabinet(10). cabinet(22). room(15). room(16). cabinetTOthing(9,3). cabinetTOthing(9,4). cabinetTOthing(9,6). cabinetTOthing(9,7). cabinetTOthing(10,8).
+cabinetTOthing(9,21). cabinetTOthing(22,5). roomTOcabinet(15,9). roomTOcabinet(16,10). roomTOcabinet(15,22). cabinetHigh(9). cabinetHigh(10). cabinetSmall(22).
 
-% New domains for cabinets and rooms
-cabinet(C) :- cabinetDomainNew(C).
-room(R) :- roomDomainNew(R).
+
+% Solution constraints ...
+
+% Derive short things
+thingShort(T) :- legacyConfig(thing(T)), not thingLong(T).
+
+% Generate cabinets and rooms
+{ cabinet(C) : legacyConfig(cabinet(C)); cabinet(C) : cabinetDomainNew(C) }.
+{ room(R) : legacyConfig(room(R)); room(R) : roomDomainNew(R) }.
+
+% Assign each cabinet to be either small or high
+1 { cabinetSmall(C); cabinetHigh(C) } 1 :- cabinet(C).
 
 % Assign things to cabinets
-1 {storedIn(T, C) : cabinet(C)} 1 :- thing(T).
+1 { cabinetTOthing(C,T) : cabinet(C) } 1 :- legacyConfig(thing(T)).
 
 % Assign cabinets to rooms
-1 {cabinetInRoom(C, R) : room(R)} 1 :- cabinet(C).
+1 { roomTOcabinet(R,C) : room(R) } 1 :- cabinet(C).
 
-% Room assignment to a person
-1 {roomBelongsTo(R, P) : person(P)} 1 :- room(R).
+% Define
+person(P) :- legacyConfig(person(P)).
+thing(T) :- legacyConfig(thing(T)).
+owns(P,T) :- legacyConfig(personTOthing(P,T)).
 
-% Constraints
-% A cabinet can hold up to 5 things
-:- #count {T : storedIn(T, C)} > 5, cabinet(C).
+% Long items must go in high cabinets
+:- thingLong(T), cabinetTOthing(C,T), not cabinetHigh(C).
 
-% A room can hold up to 4 cabinets
-:- #count {C : cabinetInRoom(C, R)} > 4, room(R).
+% Short items should prefer small cabinets when possible
+preferSmall(T) :- thingShort(T).
+:- preferSmall(T), cabinetTOthing(C,T), cabinetHigh(C).
 
-% Ensure things are assigned to cabinets in rooms belonging to the correct person
-:- storedIn(T, C), cabinetInRoom(C, R), roomBelongsTo(R, P), owner(T, P2), P != P2.
+% Cabinets can hold a maximum of 5 items
+:- cabinetTOthing(C,T1), cabinetTOthing(C,T2), T1 != T2, #count { T : cabinetTOthing(C,T) } > 5.
 
-% Cost calculation - minimize the number of cabinets and rooms used
+% Room capacity constraint for cabinets: up to 4 capacity units per room
+:- roomTOcabinet(R,C1), roomTOcabinet(R,C2), C1 != C2,
+   #sum { 1,C : roomTOcabinet(R,C), cabinetSmall(C);
+          2,C : roomTOcabinet(R,C), cabinetHigh(C) } > 4.
+
+% Ownership constraint: things belonging to different people cannot be in the same cabinet
+:- cabinetTOthing(C,T1), cabinetTOthing(C,T2), owns(P1,T1), owns(P2,T2), P1 != P2.
+
+:- cabinet(C), thing(T), not cabinetTOthing(C,T), #sum { 1,C : cabinetTOthing(C,T) } > 3.
+:- cabinet(23), not cabinetSmall(23), preferSmall(_).
+
+% Optimization
 #minimize {
-    1@1, C : cabinet(C); % Minimize cabinets used
-    1@2, R : room(R)    % Minimize rooms used
+    3@2,C : cabinetHigh(C), legacyConfig(cabinet(C));
+    5@1,C : cabinetSmall(C), legacyConfig(cabinet(C));
+    1@3,C : cabinet(C), not legacyConfig(cabinet(C)), cabinetSmall(C);
+    10@2,C : cabinet(C), not legacyConfig(cabinet(C)), cabinetHigh(C);
+    100@2,C : cabinet(C), not legacyConfig(cabinet(C)), cabinetHigh(C);
+    1@4,R : room(R), not legacyConfig(room(R));
+    5@2,R : room(R), not legacyConfig(room(R))
 }.
 
-% Assign cabinets to rooms
-1 {cabinetInRoom(C, R) : room(R)} 1 :- cabinet(C).
-
-% High-Cost Cabinet Constraint
-cabinetHigh(C) :- cabinet(C), reuseCabinetAsHighCost(C).
-
-% Small-Cost Cabinet Constraint
-cabinetSmall(C) :- cabinet(C), reuseCabinetAsSmallCost(C).
-
-% Cost calculations (if optimization is needed)
-#minimize { 1@1, C : cabinetHigh(C); 1@1, C : cabinetSmall(C); 1@1, R : roomCost(R) }.
-
-% Show the assignments
+% Output
+#show cabinet/1.
+#show cabinetSmall/1.
+#show cabinetHigh/1.
+#show room/1.
 #show cabinetTOthing/2.
 #show roomTOcabinet/2.
-#show cabinetHigh/1.
-#show cabinetSmall/1.
-
-% Display results
-cabinetTOthing(C, T) :- storedIn(T, C).
-roomTOcabinet(R, C) :- cabinetInRoom(C, R).
